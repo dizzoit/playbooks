@@ -1,0 +1,11 @@
+---
+- name: Smoke test (ansible can sudo without password)
+  hosts: all
+  become: true
+  tasks:
+    - name: Who am I as root?
+      ansible.builtin.command: id
+      register: out
+      changed_when: false
+    - ansible.builtin.debug:
+        var: out.stdout
