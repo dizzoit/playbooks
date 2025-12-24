@@ -1,0 +1,53 @@
+---
+- name: Weekly Rocky security patching (security-only + reboot if recommended)
+  hosts: rocky
+  become: true
+  serial: 1
+
+  vars:
+    reboot_if_recommended: true
+
+  tasks:
+    - name: Ensure DNF needs-restarting plugin is present
+      ansible.builtin.package:
+        name: dnf-plugins-core
+        state: present
+
+    - name: Detect if host uses dnf5
+      ansible.builtin.stat:
+        path: /usr/bin/dnf5
+      register: dnf5_bin
+
+    - name: Apply security updates (dnf5)
+      ansible.builtin.dnf5:
+        name: "*"
+        state: latest
+        update_cache: true
+        security: true
+      when: dnf5_bin.stat.exists
+
+    - name: Apply security updates (dnf)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: true
+        security: true
+      when: not dnf5_bin.stat.exists
+
+    - name: Check whether reboot is recommended (dnf needs-restarting -r)
+      ansible.builtin.command: dnf -q needs-restarting -r
+      register: reboot_hint
+      changed_when: false
+      failed_when: false
+
+    - name: Reboot if recommended
+      ansible.builtin.reboot:
+        msg: "Reboot triggered by Rocky weekly security patching"
+        reboot_timeout: 1200
+      when: reboot_if_recommended and reboot_hint.rc == 1
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "security_updates_applied=true"
+          - "reboot_recommended={{ reboot_hint.rc == 1 }}"
