@@ -1,17 +1,17 @@
 ---
-- name: Validate AWX can reach hosts and sudo works
+- name: Validate AWX connectivity + passwordless sudo
   hosts: all
   gather_facts: false
-  become: true
+
   tasks:
-    - name: Ping
+    - name: Ping (no sudo)
       ansible.builtin.ping:
 
-    - name: Who am I (sudo)
-      ansible.builtin.command: whoami
-      register: me
+    - name: Verify passwordless sudo
+      ansible.builtin.command: sudo -n true
+      register: sudotest
       changed_when: false
 
-    - name: Show sudo user
+    - name: Show sudo result
       ansible.builtin.debug:
-        var: me.stdout
+        msg: "SUDO_OK"
