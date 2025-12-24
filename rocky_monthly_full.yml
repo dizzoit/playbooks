@@ -1,0 +1,61 @@
+---
+- name: Monthly Rocky maintenance (full update + autoremove + reboot if recommended)
+  hosts: rocky
+  become: true
+  serial: 1
+
+  vars:
+    reboot_if_recommended: true
+
+  tasks:
+    - name: Ensure DNF needs-restarting plugin is present
+      ansible.builtin.package:
+        name: dnf-plugins-core
+        state: present
+
+    - name: Detect if host uses dnf5
+      ansible.builtin.stat:
+        path: /usr/bin/dnf5
+      register: dnf5_bin
+
+    - name: Update everything (dnf5)
+      ansible.builtin.dnf5:
+        name: "*"
+        state: latest
+        update_cache: true
+      when: dnf5_bin.stat.exists
+
+    - name: Update everything (dnf)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: true
+      when: not dnf5_bin.stat.exists
+
+    - name: Autoremove unneeded packages (dnf5)
+      ansible.builtin.dnf5:
+        autoremove: true
+      when: dnf5_bin.stat.exists
+
+    - name: Autoremove unneeded packages (dnf)
+      ansible.builtin.dnf:
+        autoremove: true
+      when: not dnf5_bin.stat.exists
+
+    - name: Check whether reboot is recommended (dnf needs-restarting -r)
+      ansible.builtin.command: dnf -q needs-restarting -r
+      register: reboot_hint
+      changed_when: false
+      failed_when: false
+
+    - name: Reboot if recommended
+      ansible.builtin.reboot:
+        msg: "Reboot triggered by Rocky monthly maintenance"
+        reboot_timeout: 1200
+      when: reboot_if_recommended and reboot_hint.rc == 1
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "full_updates_applied=true"
+          - "reboot_recommended={{ reboot_hint.rc == 1 }}"
