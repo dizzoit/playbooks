@@ -1,0 +1,27 @@
+---
+- name: Monthly Ubuntu maintenance (dist upgrade + optional reboot)
+  hosts: all
+  become: true
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+
+    - name: Dist upgrade (kernel / major deps)
+      ansible.builtin.apt:
+        upgrade: dist
+
+    - name: Autoremove unused packages
+      ansible.builtin.apt:
+        autoremove: yes
+
+    - name: Check if reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: rr
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        msg: "Reboot triggered by monthly maintenance"
+        reboot_timeout: 1200
+      when: rr.stat.exists
