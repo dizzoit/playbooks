@@ -1,0 +1,17 @@
+---
+- name: Validate AWX can reach hosts and sudo works
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ping
+      ansible.builtin.ping:
+
+    - name: Who am I (sudo)
+      ansible.builtin.command: whoami
+      register: me
+      changed_when: false
+
+    - name: Show sudo user
+      ansible.builtin.debug:
+        var: me.stdout
