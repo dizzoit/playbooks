@@ -1,17 +1,51 @@
 ---
-- name: Weekly Ubuntu patching (safe upgrade)
+- name: Weekly Ubuntu patching (unattended-upgrades run)
   hosts: all
   become: true
+
+  vars:
+    # Set per host/group in AWX inventory vars if you want:
+    reboot_if_required: false
+
   tasks:
-    - name: Update apt cache
+    - name: Install unattended-upgrades
       ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+          - update-notifier-common
+        state: present
         update_cache: yes
-        cache_valid_time: 3600
+        lock_timeout: 180
 
-    - name: Safe upgrade packages
-      ansible.builtin.apt:
-        upgrade: yes
+    - name: Ensure unattended-upgrades is enabled
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::Download-Upgradeable-Packages "1";
+          APT::Periodic::AutocleanInterval "7";
 
-    - name: Autoremove unused packages
-      ansible.builtin.apt:
-        autoremove: yes
+    - name: Run unattended-upgrade now (uses allowed origins policy)
+      ansible.builtin.command: /usr/bin/unattended-upgrade -v
+      register: uu
+      changed_when: "'Packages that will be upgraded' in uu.stdout or uu.rc == 0"
+      failed_when: uu.rc not in [0, 2]
+
+    - name: Check if reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: rr
+
+    - name: Reboot if required (optional)
+      ansible.builtin.reboot:
+        msg: "Reboot triggered by weekly patching"
+        reboot_timeout: 1200
+      when: reboot_if_required and rr.stat.exists
+
+    - name: Summary for AWX output
+      ansible.builtin.debug:
+        msg:
+          - "unattended-upgrade rc={{ uu.rc }}"
+          - "reboot_required={{ rr.stat.exists | default(false) }}"
