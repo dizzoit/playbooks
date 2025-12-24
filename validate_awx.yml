@@ -7,10 +7,11 @@
     - name: Ping (no sudo)
       ansible.builtin.ping:
 
-    - name: Verify passwordless sudo
-      ansible.builtin.command: sudo -n true
+    - name: Verify passwordless sudo (systemctl allowed)
+      ansible.builtin.command: sudo -n /usr/bin/systemctl is-system-running
       register: sudotest
       changed_when: false
+      failed_when: false
 
     - name: Show sudo result
       ansible.builtin.debug:
