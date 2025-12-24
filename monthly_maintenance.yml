@@ -1,24 +1,28 @@
 ---
 - name: Monthly Ubuntu maintenance (dist-upgrade + reboot if required)
   hosts: all
-  become: true
+  gather_facts: false
+  become: false
 
   vars:
     reboot_if_required: true
 
   tasks:
     - name: Update apt cache
+      become: true
       ansible.builtin.apt:
         update_cache: yes
         cache_valid_time: 3600
         lock_timeout: 180
 
     - name: Dist upgrade (kernel / major deps)
+      become: true
       ansible.builtin.apt:
         upgrade: dist
         lock_timeout: 180
 
     - name: Autoremove unused packages
+      become: true
       ansible.builtin.apt:
         autoremove: yes
         lock_timeout: 180
@@ -29,6 +33,7 @@
       register: rr
 
     - name: Reboot if required
+      become: true
       ansible.builtin.reboot:
         msg: "Reboot triggered by monthly maintenance"
         reboot_timeout: 1200
