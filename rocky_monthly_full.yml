@@ -1,6 +1,6 @@
 ---
 - name: Monthly Rocky maintenance (full update + autoremove + reboot if recommended)
-  hosts: rocky
+  hosts: all
   become: true
   serial: 1
 
