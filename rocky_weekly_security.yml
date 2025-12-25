@@ -51,3 +51,15 @@
         msg:
           - "security_updates_applied=true"
           - "reboot_recommended={{ reboot_hint.rc == 1 }}"
+
+
+    - name: DEBUG inventory view
+      hosts: localhost
+      gather_facts: false
+      tasks:
+        - name: Show inventory graph
+          ansible.builtin.command: ansible-inventory -i /runner/inventory/hosts --graph
+          register: inv
+          changed_when: false
+        - debug:
+            var: inv.stdout_lines
