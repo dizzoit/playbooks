@@ -1,6 +1,6 @@
 ---
 - name: Weekly Rocky security patching (security-only + reboot if recommended)
-  hosts: 	Rocky_Fleet
+  hosts: rocky_fleet
   become: true
   serial: 1
 
