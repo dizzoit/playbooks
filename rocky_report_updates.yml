@@ -1,6 +1,6 @@
 ---
 - name: Rocky update report (no changes)
-  hosts: rocky
+  hosts: all
   become: true
   gather_facts: false
 
