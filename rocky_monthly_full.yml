@@ -1,16 +1,25 @@
----
 - name: Monthly Rocky maintenance (full update + autoremove + reboot if recommended)
   hosts: all
   become: true
+  gather_facts: true
   serial: 1
 
   vars:
     reboot_if_recommended: true
+    reboot_timeout: 1200
 
   tasks:
-    - name: Ensure DNF needs-restarting plugin is present
+    - name: Sanity check - RedHat family only
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "RedHat"
+        fail_msg: "This playbook only supports Rocky/RHEL-family hosts."
+
+    - name: Ensure needs-restarting support is present
       ansible.builtin.package:
-        name: dnf-plugins-core
+        name:
+          - dnf-plugins-core
+          - dnf-utils
         state: present
 
     - name: Detect if host uses dnf5
@@ -23,6 +32,7 @@
         name: "*"
         state: latest
         update_cache: true
+      register: upd
       when: dnf5_bin.stat.exists
 
     - name: Update everything (dnf)
@@ -30,32 +40,49 @@
         name: "*"
         state: latest
         update_cache: true
+      register: upd
       when: not dnf5_bin.stat.exists
 
     - name: Autoremove unneeded packages (dnf5)
       ansible.builtin.dnf5:
         autoremove: true
+      register: rmv
       when: dnf5_bin.stat.exists
 
     - name: Autoremove unneeded packages (dnf)
       ansible.builtin.dnf:
         autoremove: true
+      register: rmv
       when: not dnf5_bin.stat.exists
 
-    - name: Check whether reboot is recommended (dnf needs-restarting -r)
+    - name: Check whether reboot is recommended (needs-restarting -r) using dnf5
+      ansible.builtin.command: dnf5 -q needs-restarting -r
+      register: reboot_hint
+      changed_when: false
+      failed_when: false
+      when: dnf5_bin.stat.exists
+
+    - name: Check whether reboot is recommended (needs-restarting -r) using dnf
       ansible.builtin.command: dnf -q needs-restarting -r
       register: reboot_hint
       changed_when: false
       failed_when: false
+      when: not dnf5_bin.stat.exists
 
     - name: Reboot if recommended
       ansible.builtin.reboot:
         msg: "Reboot triggered by Rocky monthly maintenance"
-        reboot_timeout: 1200
-      when: reboot_if_recommended and reboot_hint.rc == 1
+        reboot_timeout: "{{ reboot_timeout }}"
+      when:
+        - reboot_if_recommended
+        - reboot_hint.rc == 1
+        # Optional safety: only reboot if something changed this run
+        - (upd.changed | default(false)) or (rmv.changed | default(false))
 
     - name: Summary
       ansible.builtin.debug:
         msg:
-          - "full_updates_applied=true"
+          - "updates_changed={{ upd.changed | default(false) }}"
+          - "autoremove_changed={{ rmv.changed | default(false) }}"
           - "reboot_recommended={{ reboot_hint.rc == 1 }}"
+          - "dnf_flavor={{ 'dnf5' if dnf5_bin.stat.exists else 'dnf' }}"
