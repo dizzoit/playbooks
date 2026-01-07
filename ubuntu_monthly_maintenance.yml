@@ -1,45 +1,59 @@
----
 - name: Monthly Ubuntu maintenance (dist-upgrade + reboot if required)
   hosts: all
-  gather_facts: false
-  become: false
+  become: true
+  gather_facts: true
 
   vars:
-    reboot_if_required: true
+    apt_lock_timeout: 180
+    apt_cache_valid_time: 3600   # monthly: fine to reuse cache within the hour
+    reboot_timeout: 1800
 
   tasks:
+    - name: Sanity check - Debian/Ubuntu only
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+        fail_msg: "This playbook only supports Debian/Ubuntu hosts."
+
     - name: Update apt cache
-      become: true
       ansible.builtin.apt:
         update_cache: yes
-        cache_valid_time: 3600
-        lock_timeout: 180
+        cache_valid_time: "{{ apt_cache_valid_time }}"
+        lock_timeout: "{{ apt_lock_timeout }}"
+      register: apt_cache
 
     - name: Dist upgrade (kernel / major deps)
-      become: true
       ansible.builtin.apt:
         upgrade: dist
-        lock_timeout: 180
-
-    - name: Autoremove unused packages
-      become: true
-      ansible.builtin.apt:
         autoremove: yes
-        lock_timeout: 180
+        autoclean: yes
+        dpkg_options: "force-confdef,force-confold"
+        lock_timeout: "{{ apt_lock_timeout }}"
+      register: apt_upgrade
 
     - name: Check if reboot is required
       ansible.builtin.stat:
         path: /var/run/reboot-required
       register: rr
 
+    - name: Read reboot-required packages (if present)
+      ansible.builtin.slurp:
+        src: /var/run/reboot-required.pkgs
+      register: rr_pkgs
+      when: rr.stat.exists
+      failed_when: false
+      changed_when: false
+
     - name: Reboot if required
-      become: true
       ansible.builtin.reboot:
         msg: "Reboot triggered by monthly maintenance"
-        reboot_timeout: 1200
-      when: reboot_if_required and rr.stat.exists
+        reboot_timeout: "{{ reboot_timeout }}"
+      when: rr.stat.exists
 
     - name: Summary for AWX output
       ansible.builtin.debug:
         msg:
+          - "apt_cache_updated={{ apt_cache.changed | default(false) }}"
+          - "apt_changed={{ apt_upgrade.changed | default(false) }}"
           - "reboot_required={{ rr.stat.exists | default(false) }}"
+          - "reboot_pkgs={{ (rr_pkgs.content | default('') | b64decode).splitlines() if rr.stat.exists else [] }}"
