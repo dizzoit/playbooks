@@ -1,37 +1,55 @@
----
-- name: Weekly Ubuntu patching (unattended-upgrades run)
+- name: Weekly Ubuntu full patching (update + dist-upgrade)
   hosts: all
   become: true
+  gather_facts: true
 
   vars:
-    # Set per host/group in AWX inventory vars if you want:
     reboot_if_required: false
+    apt_lock_timeout: 180
+    apt_cache_valid_time: 0      # 0 = always refresh cache on weekly run (safe)
+    upgrade_mode: "dist"         # FULL upgrade weekly
 
   tasks:
-    - name: Install unattended-upgrades
+    - name: Sanity check - Ubuntu/Debian only
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+        fail_msg: "This playbook only supports Debian/Ubuntu hosts."
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: "{{ apt_cache_valid_time }}"
+        lock_timeout: "{{ apt_lock_timeout }}"
+      register: apt_cache
+
+    - name: Ensure unattended-upgrades tooling is present (optional but recommended)
       ansible.builtin.apt:
         name:
           - unattended-upgrades
           - update-notifier-common
         state: present
-        update_cache: yes
-        lock_timeout: 180
+        lock_timeout: "{{ apt_lock_timeout }}"
 
-    - name: Ensure unattended-upgrades is enabled
+    - name: Enable periodic unattended upgrades (between weekly runs)
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf.d/20auto-upgrades
         mode: "0644"
+        owner: root
+        group: root
         content: |
           APT::Periodic::Update-Package-Lists "1";
           APT::Periodic::Unattended-Upgrade "1";
           APT::Periodic::Download-Upgradeable-Packages "1";
           APT::Periodic::AutocleanInterval "7";
 
-    - name: Run unattended-upgrade now (uses allowed origins policy)
-      ansible.builtin.command: /usr/bin/unattended-upgrade -v
-      register: uu
-      changed_when: "'Packages that will be upgraded' in uu.stdout or uu.rc == 0"
-      failed_when: uu.rc not in [0, 2]
+    - name: Full upgrade now (dist-upgrade)
+      ansible.builtin.apt:
+        upgrade: "{{ upgrade_mode }}"
+        autoremove: yes
+        autoclean: yes
+        lock_timeout: "{{ apt_lock_timeout }}"
+      register: apt_upgrade
 
     - name: Check if reboot is required
       ansible.builtin.stat:
@@ -40,12 +58,13 @@
 
     - name: Reboot if required (optional)
       ansible.builtin.reboot:
-        msg: "Reboot triggered by weekly patching"
-        reboot_timeout: 1200
+        msg: "Reboot triggered by weekly full patching"
+        reboot_timeout: 1800
       when: reboot_if_required and rr.stat.exists
 
     - name: Summary for AWX output
       ansible.builtin.debug:
         msg:
-          - "unattended-upgrade rc={{ uu.rc }}"
+          - "apt_cache_updated={{ apt_cache.changed | default(false) }}"
+          - "apt_changed={{ apt_upgrade.changed | default(false) }}"
           - "reboot_required={{ rr.stat.exists | default(false) }}"
